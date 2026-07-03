@@ -1,0 +1,10 @@
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart>=0.0.6
+pdfplumber>=0.7.0
+requests>=2.25.0
+pywin32>=300
+python-docx>=0.8.11
+# python-hwpx (Excluded due to Python 3.14 lxml dependency compilation limitations on Windows)
+pdf2docx>=0.5.8
+deep-translator>=1.11.4

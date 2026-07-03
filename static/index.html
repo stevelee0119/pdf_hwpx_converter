@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Docs & PDF to HWPX Converter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-decor">
+        <div class="glow-orb" id="orb1"></div>
+        <div class="glow-orb" id="orb2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- 1. Header Banner -->
+        <header class="app-header">
+            <h1 class="glow-text">HWPX / HWP 문서 변환기</h1>
+            <p class="subtitle">Google Docs 링크 또는 PDF / DOCX 파일을 한글 문서로 완벽하게 변환해 보세요.</p>
+        </header>
+
+        <!-- 2. Main Content Card -->
+        <main class="main-card">
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" id="tab-gdocs">🔗 Google Docs / Drive 링크 변환</button>
+                <button class="tab-btn" id="tab-local">📂 로컬 파일 업로드 변환</button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- Tab 1: Google Docs URL Form -->
+                <div class="content-panel active" id="panel-gdocs">
+                    <div class="input-group">
+                        <label for="gdocs-url">Google Docs 또는 Drive 공유 링크</label>
+                        <input type="url" id="gdocs-url" placeholder="https://docs.google.com/... 또는 https://drive.google.com/... 입력하세요" autocomplete="off">
+                        <p class="info-tip">⚠️ 구글 문서의 공유 설정이 '링크가 있는 모든 사용자에게 뷰어' 이상으로 공개 설정되어 있어야 다운로드할 수 있습니다.</p>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Local File Drag & Drop -->
+                <div class="content-panel" id="panel-local">
+                    <div class="drop-zone" id="drop-zone">
+                        <span class="drop-icon">📥</span>
+                        <p class="drop-text">여기에 PDF 또는 DOCX 파일을 드래그 앤 드롭하세요</p>
+                        <span class="or-divider">또는</span>
+                        <button class="btn-select-file" id="btn-select-file">기기에서 파일 선택</button>
+                        <input type="file" id="file-input" accept=".pdf, .docx" style="display: none;">
+                    </div>
+                    <div class="selected-file-banner" id="file-banner" style="display: none;">
+                        <span class="file-icon">📄</span>
+                        <span class="file-name" id="selected-file-name">선택된 파일.pdf</span>
+                        <button class="btn-remove-file" id="btn-remove-file">✕</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Option Settings Group -->
+            <section class="options-section">
+                <h3>변환 옵션 설정</h3>
+
+                <div class="option-row">
+                    <span class="option-label">텍스트 번역</span>
+                    <div class="option-choices">
+                        <label class="radio-label">
+                            <input type="radio" name="trans-type" value="false" checked>
+                            <span class="custom-radio"></span> 원본 유지 (그대로 추출)
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="trans-type" value="true">
+                            <span class="custom-radio"></span> 영어 -> 한국어로 번역 후 추출
+                        </label>
+                    </div>
+                </div>
+
+                <div class="option-row">
+                    <span class="option-label">변환 처리 엔진</span>
+                    <div class="option-choices">
+                        <label class="radio-label">
+                            <input type="radio" name="engine-type" value="true" checked id="engine-auto">
+                            <span class="custom-radio"></span> 한글 연동 (서식 완벽 보존)
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="engine-type" value="false" id="engine-lib">
+                            <span class="custom-radio"></span> 오픈소스 라이브러리 (텍스트 위주)
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Progress Block (Hidden by default, shown during conversion) -->
+            <section class="progress-section" id="progress-section" style="display: none;">
+                <div class="progress-header">
+                    <span class="status-message" id="status-message">변환 작업 시작 중...</span>
+                    <span class="time-estimate" id="time-estimate">예상 시간: 계산 중...</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-footer">
+                    <span class="progress-percent" id="progress-percent">0%</span>
+                    <span class="bg-working-tag">⚙️ 백그라운드 실행 중 (이 창을 켜둔 채 다른 업무를 보셔도 안전합니다)</span>
+                </div>
+            </section>
+
+            <!-- Conversion Execute Button -->
+            <button class="btn-convert" id="btn-convert">🚀 HWPX로 변환하기</button>
+        </main>
+
+        <!-- Log Area -->
+        <footer class="app-footer">
+            <div class="log-card">
+                <h4>실행 상태 로그</h4>
+                <div class="log-console" id="log-console">
+                    <p class="log-entry sys">[SYSTEM] 웹 서비스 준비가 완료되었습니다.</p>
+                </div>
+            </div>
+            <p class="copyright">© 2026 HwpxConverter Web System. Antigravity Powered.</p>
+        </footer>
+    </div>
+
+    <!-- 3. Success Notification Modal (Popup) -->
+    <div class="modal-overlay" id="success-modal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-icon">🎉</div>
+            <h2>문서 변환 완료!</h2>
+            <p>선택하신 파일이 성공적으로 아래아한글 문서로 변환되었습니다. 아래 버튼을 클릭하여 기기에 다운로드 받으세요.</p>
+            
+            <div class="modal-file-info">
+                <span class="info-icon">📄</span>
+                <div class="info-texts">
+                    <div class="info-title" id="modal-file-title">converted_document.hwpx</div>
+                    <div class="info-sub">HWPX Document</div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-download" id="btn-download">💾 변환 파일 다운로드</button>
+                <button class="btn-close-modal" id="btn-close-modal">닫기</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
