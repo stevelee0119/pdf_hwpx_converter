@@ -127,6 +127,7 @@ def set_task_status_failed(task_id: str, error_msg: str):
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.head("/", response_class=HTMLResponse)
 def read_root():
     """메인 웹 페이지 반환"""
     index_path = os.path.join("static", "index.html")
