@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         card_layout.setContentsMargins(20, 20, 20, 20)
         card_layout.setSpacing(6)
         
-        badge_label = QLabel("🎖️ ROK ARMY GENERAL ADMINISTRATION SCHOOL")
+        badge_label = QLabel("🎖️ Smart & Harmony, Army Consolidate Administrative School, ROK")
         badge_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
         badge_label.setStyleSheet("color: #ff9e3b; letter-spacing: 1px; font-weight: bold;")
         
