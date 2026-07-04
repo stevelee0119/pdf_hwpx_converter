@@ -2,6 +2,7 @@ import os
 import re
 import requests
 import traceback
+import gc
 
 # Optional imports for Libre Engine
 try:
@@ -82,11 +83,14 @@ class GoogleDocsDownloader:
             raise ValueError("올바른 Google Docs URL이 아닙니다. '/document/d/문서ID' 형식이 포함되어야 합니다.")
         export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=docx"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-        response = requests.get(export_url, headers=headers, timeout=30)
+        # stream=True 설정으로 메모리 사용 최소화
+        response = requests.get(export_url, headers=headers, stream=True, timeout=30)
         if response.status_code == 200:
             original_filename = extract_filename_from_headers(response.headers, f"gdocs_{doc_id[:12]}.docx")
             with open(output_path, 'wb') as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=32768):
+                    if chunk:
+                        f.write(chunk)
             return output_path, original_filename
         elif response.status_code in (401, 403):
             raise PermissionError("구글 Docs 문서에 접근할 권한이 없습니다. 링크 공유 설정을 '링크가 있는 모든 사용자에게 공개'로 변경해 주세요.")
@@ -108,22 +112,7 @@ class GoogleDriveDownloader:
             return match.group(1)
         raise ValueError("구글 드라이브 URL에서 파일 ID를 추출할 수 없습니다.")
 
-    @staticmethod
-    def get_filename_from_response(response, file_id):
-        """응답 헤더에서 파일명을 추출합니다."""
-        cd = response.headers.get("Content-Disposition", "")
-        # filename="xxx" 또는 filename*=UTF-8''xxx 형태 파싱
-        match = re.search(r'filename\*?=["\']?(?:UTF-8\'\')?(.*?)["\']?(?:;|$)', cd, re.IGNORECASE)
-        if match:
-            name = match.group(1).strip().strip('"').strip("'")
-            try:
-                from urllib.parse import unquote
-                name = unquote(name)
-            except Exception:
-                pass
-            if name:
-                return name
-        return None
+
 
     @staticmethod
     def _get_confirm_token(response):
@@ -258,7 +247,11 @@ class DocxTranslator:
                             except Exception as e:
                                 print(f"[DocxTranslator] 표 텍스트 번역 실패: {e}")
                                 
-        doc.save(output_path)
+        try:
+            doc.save(output_path)
+        finally:
+            # 메모리 효율화: 가비지 컬렉션 호출
+            gc.collect()
 
 
 class HwpAutomationEngine:
@@ -417,6 +410,20 @@ class LibBasedEngine:
         return HwpxDocument is not None
 
     @classmethod
+    def _apply_global_paragraph_style(cls, doc):
+        """가독성 개선: 모든 문단 양식 템플릿의 정렬을 왼쪽 정렬로, 
+        영문 및 한글 줄 나눔 방식을 어절 단위(KEEP_WORD)로 일괄 변경합니다."""
+        for prop_id, prop in doc.paragraph_properties.items():
+            try:
+                if hasattr(prop, 'align') and hasattr(prop.align, 'horizontal'):
+                    prop.align.horizontal = 'LEFT'
+                if hasattr(prop, 'break_setting'):
+                    prop.break_setting.break_latin_word = 'KEEP_WORD'
+                    prop.break_setting.break_non_latin_word = 'KEEP_WORD'
+            except Exception as e:
+                print(f"[LibBasedEngine] Failed to apply global para style {prop_id}: {e}")
+
+    @classmethod
     def _extract_page_text(cls, page):
         """
         pdfplumber를 이용해 페이지 텍스트를 추출할 때 공백(띄어쓰기) 누락을 방지하는 다중 알고리즘 구현
@@ -558,22 +565,15 @@ class LibBasedEngine:
                     if i < len(pdf.pages) - 1:
                         doc.add_paragraph("--------------------------------------------------------------------------------")
             
-            # 가독성 개선: 모든 문단 양식 템플릿의 정렬을 왼쪽 정렬로, 
-            # 영문 및 한글 줄 나눔 방식을 어절 단위(KEEP_WORD)로 일괄 변경합니다.
-            for prop_id, prop in doc.paragraph_properties.items():
-                try:
-                    if hasattr(prop, 'align') and hasattr(prop.align, 'horizontal'):
-                        prop.align.horizontal = 'LEFT'
-                    if hasattr(prop, 'break_setting'):
-                        prop.break_setting.break_latin_word = 'KEEP_WORD'
-                        prop.break_setting.break_non_latin_word = 'KEEP_WORD'
-                except Exception as e:
-                    print(f"[LibBasedEngine] Failed to apply global para style {prop_id}: {e}")
+            # 가독성 개선: 전역 문단 스타일 설정 적용
+            cls._apply_global_paragraph_style(doc)
 
             doc.save_to_path(output_path)
         finally:
             # Clean up temporary image files
             shutil.rmtree(temp_dir, ignore_errors=True)
+            # 메모리 효율화: 가비지 컬렉션 호출
+            gc.collect()
 
     @classmethod
     def _docx_color_to_hex(cls, color):
@@ -730,17 +730,8 @@ class LibBasedEngine:
             except Exception as e:
                 print(f"[LibBasedEngine] 테이블 변환 실패 (무시): {e}")
 
-            # 가독성 개선: 모든 문단 양식 템플릿의 정렬을 왼쪽 정렬로, 
-            # 영문 및 한글 줄 나눔 방식을 어절 단위(KEEP_WORD)로 일괄 변경합니다.
-            for prop_id, prop in doc.paragraph_properties.items():
-                try:
-                    if hasattr(prop, 'align') and hasattr(prop.align, 'horizontal'):
-                        prop.align.horizontal = 'LEFT'
-                    if hasattr(prop, 'break_setting'):
-                        prop.break_setting.break_latin_word = 'KEEP_WORD'
-                        prop.break_setting.break_non_latin_word = 'KEEP_WORD'
-                except Exception as e:
-                    print(f"[LibBasedEngine] Failed to apply global para style {prop_id}: {e}")
+        # 가독성 개선: 모든 테이블 변환 완료 후 전역 문단 스타일 설정 적용
+        cls._apply_global_paragraph_style(doc)
 
         doc.save_to_path(output_path)
 
@@ -907,3 +898,5 @@ class UniversalConverter:
                         os.remove(temp_file)
                     except Exception as e:
                         print(f"Warning: Failed to delete temp file {temp_file}: {e}")
+            # 메모리 효율화: 가비지 컬렉션 호출
+            gc.collect()
