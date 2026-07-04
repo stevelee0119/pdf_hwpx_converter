@@ -136,9 +136,9 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("Google Docs & PDF to HWPX Converter")
-        self.resize(700, 750)
-        self.setMinimumSize(600, 650)
+        self.setWindowTitle("육군종합행정학교 PDF 자료 변환 프로그램")
+        self.resize(700, 770)
+        self.setMinimumSize(600, 680)
 
         # 메인 윈도우 스타일 및 배경 설정 (다크 모드 프리미엄 테마)
         self.setStyleSheet("""
@@ -220,18 +220,36 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(25, 25, 25, 25)
         main_layout.setSpacing(20)
 
-        # 1. Header Banner
-        header_layout = QVBoxLayout()
-        header_title = QLabel("HWPX / HWP 문서 변환기")
-        header_title.setFont(QFont("Malgun Gothic", 20, QFont.Bold))
-        header_title.setStyleSheet("color: #00ADB5;")
-        header_subtitle = QLabel("Google Docs 주소 또는 PDF 파일을 한글 문서로 손쉽게 변환해 보세요.")
-        header_subtitle.setFont(QFont("Malgun Gothic", 10))
-        header_subtitle.setStyleSheet("color: #787a91;")
+        # 1. Header Card Frame (육군종합행정학교 디자인 배너)
+        header_card = QFrame()
+        header_card.setObjectName("HeaderCard")
+        header_card.setStyleSheet("""
+            #HeaderCard {
+                background-color: #202130;
+                border-radius: 12px;
+                border: 1px solid #2e3047;
+            }
+        """)
+        card_layout = QVBoxLayout(header_card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(6)
         
-        header_layout.addWidget(header_title)
-        header_layout.addWidget(header_subtitle)
-        main_layout.addLayout(header_layout)
+        badge_label = QLabel("🎖️ ROK ARMY GENERAL ADMINISTRATION SCHOOL")
+        badge_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        badge_label.setStyleSheet("color: #ff9e3b; letter-spacing: 1px; font-weight: bold;")
+        
+        header_title = QLabel("육군종합행정학교 PDF 자료 변환 프로그램")
+        header_title.setFont(QFont("Malgun Gothic", 18, QFont.Bold))
+        header_title.setStyleSheet("color: #00ADB5; font-weight: bold;")
+        
+        header_subtitle = QLabel("문서 자료의 정교한 텍스트 추출, 한국어 번역 및 HWPX 변환을 지원합니다.")
+        header_subtitle.setFont(QFont("Malgun Gothic", 9.5))
+        header_subtitle.setStyleSheet("color: #a0a5c0;")
+        
+        card_layout.addWidget(badge_label)
+        card_layout.addWidget(header_title)
+        card_layout.addWidget(header_subtitle)
+        main_layout.addWidget(header_card)
 
         # 2. Input Type Selector Buttons (Tab 역할)
         tab_layout = QHBoxLayout()
