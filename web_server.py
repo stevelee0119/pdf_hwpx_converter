@@ -66,6 +66,7 @@ def run_conversion_task(task_id: str, input_path: str, output_path: str, use_aut
         tasks_status[task_id]["progress"] = 100
         tasks_status[task_id]["message"] = "변환 완료!"
         tasks_status[task_id]["result_file"] = result_path
+        tasks_status[task_id]["original_name"] = os.path.basename(result_path)
         tasks_status[task_id]["remaining_seconds"] = 0
 
     except Exception as e:

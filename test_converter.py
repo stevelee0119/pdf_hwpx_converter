@@ -64,7 +64,7 @@ def run_test():
             input_source=input_source,
             output_path=output_path,
             use_automation=use_automation,
-            format_type=format_type,
+            translate_to_ko=False,
             progress_callback=progress_callback
         )
         print("-" * 40)

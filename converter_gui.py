@@ -17,7 +17,7 @@ class ConversionWorker(QThread):
     GUI 프리징을 방지하기 위해 백그라운드에서 파일 변환을 진행하는 스레드입니다.
     """
     progress = Signal(str, int)  # (상태 메시지, 퍼센트)
-    finished = Signal(bool, str)  # (성공 여부, 결과 메시지 또는 에러 메시지)
+    finished = Signal(bool, str, str)  # (성공 여부, 결과 메시지 또는 에러 메시지, 최종 결과 파일 경로)
 
     def __init__(self, input_source, output_path, use_automation, translate_to_ko):
         super().__init__()
@@ -38,12 +38,12 @@ class ConversionWorker(QThread):
                 translate_to_ko=self.translate_to_ko,
                 progress_callback=progress_callback
             )
-            self.finished.emit(True, f"변환이 완료되었습니다!\n파일 경로: {result_path}")
+            self.finished.emit(True, f"변환이 완료되었습니다!\n파일 경로: {result_path}", result_path)
         except Exception as e:
             err_msg = str(e)
             # 상세 트레이스백은 콘솔 출력
             traceback.print_exc()
-            self.finished.emit(False, f"에러 발생: {err_msg}")
+            self.finished.emit(False, f"에러 발생: {err_msg}", "")
 
 
 class DropArea(QFrame):
@@ -509,17 +509,30 @@ class MainWindow(QMainWindow):
                 self.append_log("경고: Google Docs URL을 입력해 주세요.")
                 return
             input_source = url
-            # 구글 Docs는 url에서 문서명 매핑하기가 곤란하므로 기본 변환 문서명 사용
-            doc_id = GoogleDocsDownloader.extract_document_id(url)
-            if doc_id:
-                default_out_name = f"gdocs_{doc_id[:8]}"
+            # URL 소스는 core_converter에서 파일명을 재구성하므로 임시 기본명 사용
+            # Google Drive / Google Docs 구분 처리
+            if "drive.google.com" in url:
+                try:
+                    from core_converter import GoogleDriveDownloader
+                    file_id = GoogleDriveDownloader.extract_file_id(url)
+                    default_out_name = f"gdrive_{file_id[:12]}"
+                except Exception:
+                    default_out_name = "gdrive_file"
+            else:
+                doc_id = GoogleDocsDownloader.extract_document_id(url)
+                if doc_id:
+                    default_out_name = f"gdocs_{doc_id[:12]}"
+                else:
+                    default_out_name = "gdocs_document"
         else:
             # 로컬 파일 모드
             if not self.selected_file_path:
                 self.append_log("경고: 변환할 PDF 또는 DOCX 파일을 선택해 주세요.")
                 return
             input_source = self.selected_file_path
-            default_out_name = os.path.splitext(os.path.basename(input_source))[0]
+            # 로컬 파일: '원본파일명(converted)' 형태로 저장
+            base_name = os.path.splitext(os.path.basename(input_source))[0]
+            default_out_name = f"{base_name}(converted)"
 
         # 저장 폴더 정의
         save_dir = self.txt_save_path.text().strip()
@@ -575,8 +588,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(percent)
         self.append_log(f"[{percent}%] {status_text}")
 
-    @Slot(bool, str)
-    def on_conversion_finished(self, success, message):
+    @Slot(bool, str, str)
+    def on_conversion_finished(self, success, message, result_path):
         self.btn_convert.setEnabled(True)
         self.btn_gdocs_tab.setEnabled(True)
         self.btn_local_tab.setEnabled(True)
@@ -587,12 +600,78 @@ class MainWindow(QMainWindow):
             self.lbl_status.setStyleSheet("color: #50fa7b; font-weight: bold;")
             self.lbl_status.setText("변환 완료!")
             self.append_log(f"[완료] {message}")
+            
+            # 변환이 성공적으로 완료되었을 때 즉시 알림창(QMessageBox) 팝업 제공
+            if result_path and os.path.exists(result_path):
+                self.show_success_popup(result_path)
         else:
             self.lbl_status.setStyleSheet("color: #ff5555; font-weight: bold;")
             self.lbl_status.setText("변환 실패")
             self.append_log(f"[실패] {message}")
 
         self.append_log(f"----------------------\n")
+
+    def show_success_popup(self, file_path):
+        """변환 성공 시 파일 열기 / 폴더 열기 옵션을 포함한 팝업을 띄웁니다."""
+        from PySide6.QtWidgets import QMessageBox
+        import subprocess
+        
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("변환 완료")
+        msg_box.setText(f"문서 변환이 성공적으로 완료되었습니다!\n\n저장 경로:\n{file_path}")
+        msg_box.setIcon(QMessageBox.Information)
+        
+        # 다크 테마 커스텀 스타일링 적용 (MainWindow의 테마와 일관성 유지)
+        msg_box.setStyleSheet("""
+            QMessageBox {
+                background-color: #1a1b26;
+                color: #f8f8f2;
+            }
+            QLabel {
+                color: #f8f8f2;
+                font-family: "Malgun Gothic", sans-serif;
+                font-size: 10pt;
+            }
+            QPushButton {
+                background-color: #3e4260;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #4f5372;
+            }
+            QPushButton:pressed {
+                background-color: #2f3248;
+            }
+        """)
+        
+        # 커스텀 버튼 추가
+        btn_open_file = msg_box.addButton("📄 파일 열기", QMessageBox.ActionRole)
+        btn_open_folder = msg_box.addButton("📂 폴더 열기", QMessageBox.ActionRole)
+        btn_close = msg_box.addButton("닫기", QMessageBox.RejectRole)
+        
+        msg_box.exec()
+        
+        clicked_button = msg_box.clickedButton()
+        if clicked_button == btn_open_file:
+            try:
+                # 연결 프로그램으로 파일 실행
+                os.startfile(file_path)
+                self.append_log("[시스템] 변환 파일을 실행했습니다.")
+            except Exception as e:
+                self.append_log(f"[시스템 오류] 파일을 열지 못했습니다: {e}")
+        elif clicked_button == btn_open_folder:
+            try:
+                # 폴더를 열고 해당 파일 하이라이트 (/select 옵션)
+                norm_path = os.path.normpath(file_path)
+                subprocess.run(['explorer', '/select,', norm_path])
+                self.append_log("[시스템] 저장된 폴더를 열고 파일을 표시했습니다.")
+            except Exception as e:
+                self.append_log(f"[시스템 오류] 폴더를 열지 못했습니다: {e}")
 
 
 if __name__ == "__main__":
