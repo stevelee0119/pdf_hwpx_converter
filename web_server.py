@@ -25,9 +25,18 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # SQLite 데이터베이스 경로
 DB_PATH = os.path.abspath("tasks.db")
 
+def get_db_connection():
+    """WAL 모드 적용된 SQLite 연결을 반환합니다. multi-worker 환경에서 read/write 동시성을 보장합니다."""
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
 def init_db():
     """다중 프로세스 환경에서도 상태를 동기화하기 위해 SQLite 데이터베이스 테이블을 생성합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
@@ -49,81 +58,93 @@ init_db()
 
 def get_task_status(task_id: str):
     """DB에서 특정 작업의 상태 정보를 조회하여 반환합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT status, progress, message, result_file, estimated_seconds, remaining_seconds, original_name 
-        FROM tasks WHERE task_id = ?
-    """, (task_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "status": row[0],
-        "progress": row[1],
-        "message": row[2],
-        "result_file": row[3],
-        "estimated_seconds": row[4],
-        "remaining_seconds": row[5],
-        "original_name": row[6]
-    }
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT status, progress, message, result_file, estimated_seconds, remaining_seconds, original_name
+            FROM tasks WHERE task_id = ?
+        """, (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "status": row[0],
+            "progress": row[1],
+            "message": row[2],
+            "result_file": row[3],
+            "estimated_seconds": row[4],
+            "remaining_seconds": row[5],
+            "original_name": row[6]
+        }
+    finally:
+        conn.close()
 
 def set_task_status_pending(task_id: str, estimated_seconds: int, original_name: str):
     """새 작업을 대기 상태(pending)로 등록합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR REPLACE INTO tasks 
-        (task_id, status, progress, message, result_file, estimated_seconds, remaining_seconds, original_name)
-        VALUES (?, 'pending', 0, '대기 중...', NULL, ?, ?, ?)
-    """, (task_id, estimated_seconds, estimated_seconds, original_name))
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO tasks
+            (task_id, status, progress, message, result_file, estimated_seconds, remaining_seconds, original_name)
+            VALUES (?, 'pending', 0, '대기 중...', NULL, ?, ?, ?)
+        """, (task_id, estimated_seconds, estimated_seconds, original_name))
+        conn.commit()
+    finally:
+        conn.close()
 
 def update_task_status_processing(task_id: str):
     """작업의 상태를 처리 중(processing)으로 갱신합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE tasks SET status = 'processing' WHERE task_id = ?", (task_id,))
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE tasks SET status = 'processing' WHERE task_id = ?", (task_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 def update_task_progress(task_id: str, progress: int, message: str, remaining_seconds: int):
     """작업의 진행 상태와 메시지를 주기적으로 기록합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE tasks 
-        SET progress = ?, message = ?, remaining_seconds = ? 
-        WHERE task_id = ?
-    """, (progress, message, remaining_seconds, task_id))
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tasks
+            SET progress = ?, message = ?, remaining_seconds = ?
+            WHERE task_id = ?
+        """, (progress, message, remaining_seconds, task_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 def set_task_status_completed(task_id: str, result_file: str, original_name: str):
     """작업이 성공적으로 완수(completed)되었음을 갱신합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE tasks 
-        SET status = 'completed', progress = 100, message = '변환 완료!', result_file = ?, original_name = ?, remaining_seconds = 0
-        WHERE task_id = ?
-    """, (result_file, original_name, task_id))
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tasks
+            SET status = 'completed', progress = 100, message = '변환 완료!', result_file = ?, original_name = ?, remaining_seconds = 0
+            WHERE task_id = ?
+        """, (result_file, original_name, task_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 def set_task_status_failed(task_id: str, error_msg: str):
     """작업 도중 오류가 발생(failed)했음을 갱신합니다."""
-    conn = sqlite3.connect(DB_PATH, timeout=20.0)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE tasks 
-        SET status = 'failed', message = ?, remaining_seconds = 0
-        WHERE task_id = ?
-    """, (error_msg, task_id))
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tasks
+            SET status = 'failed', message = ?, remaining_seconds = 0
+            WHERE task_id = ?
+        """, (error_msg, task_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -271,7 +292,10 @@ def api_status(task_id: str):
     """
     task_info = get_task_status(task_id)
     if not task_info:
-        raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=404,
+            detail="해당 작업을 찾을 수 없습니다. 서버가 메모리 부족으로 재시작되었을 수 있습니다. 다시 변환을 시도해 주세요."
+        )
     return task_info
 
 

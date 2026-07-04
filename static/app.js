@@ -280,11 +280,20 @@ document.addEventListener("DOMContentLoaded", () => {
                     consecutiveErrors++;
                     if (consecutiveErrors >= 3) {
                         clearInterval(pollInterval);
-                        const oomMsg = "서버가 메모리 부족(OOM)으로 재시작되었습니다. 파일 크기를 줄이거나 페이지 수가 적은 PDF로 다시 시도해 주세요.";
+                        const oomMsg = "서버가 메모리 부족(OOM)으로 재시작되었습니다. 잠시 후 다시 시도해 주세요.";
                         appendLog(`오류: ${oomMsg}`, "error");
                         alert(`변환 실패: ${oomMsg}`);
                         setUIStateLoading(false);
                     }
+                    return;
+                }
+
+                if (res.status === 404) {
+                    clearInterval(pollInterval);
+                    const lostMsg = "서버가 재시작되어 작업 정보가 소실되었습니다. 다시 변환을 시도해 주세요.";
+                    appendLog(`오류: ${lostMsg}`, "error");
+                    alert(`변환 실패: ${lostMsg}`);
+                    setUIStateLoading(false);
                     return;
                 }
 
