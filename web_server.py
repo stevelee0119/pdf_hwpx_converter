@@ -79,7 +79,7 @@ def get_task_status(task_id: str):
         conn.close()
 
 def set_task_status_pending(task_id: str, estimated_seconds: int, original_name: str):
-    """새 작업을 대기 상태(pending)로 등록합니다. 쓰기 후 WAL checkpoint를 수행하여 즉시 가시성을 보장합니다."""
+    """새 작업을 대기 상태(pending)로 등록합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -89,7 +89,6 @@ def set_task_status_pending(task_id: str, estimated_seconds: int, original_name:
             VALUES (?, 'pending', 0, '대기 중...', NULL, ?, ?, ?)
         """, (task_id, estimated_seconds, estimated_seconds, original_name))
         conn.commit()
-        cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
     finally:
         conn.close()
 
@@ -282,11 +281,24 @@ def api_convert(
     }
 
 
+def find_output_file(task_id: str):
+    """서버 재시작 등으로 DB 정보가 유실된 경우를 대비해, 출력 폴더에서 task_id 접두사로 결과 파일을 직접 탐색합니다."""
+    prefix = f"{task_id}_"
+    try:
+        for name in os.listdir(OUTPUT_DIR):
+            if name.startswith(prefix):
+                return os.path.join(OUTPUT_DIR, name)
+    except OSError:
+        pass
+    return None
+
+
 @app.get("/api/status/{task_id}")
 def api_status(task_id: str):
     """
     특정 태스크의 현재 진행 상태를 조회합니다.
-    DB에서 즉시 조회되지 않으면 WAL 동기화 지연을 고려하여 한 번 더 시도합니다.
+    DB에서 즉시 조회되지 않으면 WAL 동기화 지연을 고려하여 한 번 더 시도하고,
+    DB 정보가 유실된 경우에도 결과 파일이 존재하면 완료 상태로 응답합니다.
     """
     task_info = get_task_status(task_id)
     if not task_info:
@@ -294,6 +306,18 @@ def api_status(task_id: str):
         time.sleep(0.3)
         task_info = get_task_status(task_id)
     if not task_info:
+        # DB 유실 폴백: 결과 파일이 디스크에 남아 있으면 변환 완료로 간주
+        result_file = find_output_file(task_id)
+        if result_file:
+            return {
+                "status": "completed",
+                "progress": 100,
+                "message": "변환 완료!",
+                "result_file": result_file,
+                "estimated_seconds": 0,
+                "remaining_seconds": 0,
+                "original_name": os.path.basename(result_file)[len(task_id) + 1:]
+            }
         raise HTTPException(
             status_code=404,
             detail="해당 작업을 찾을 수 없습니다. 서버가 메모리 부족으로 재시작되었을 수 있습니다. 다시 변환을 시도해 주세요."
@@ -308,11 +332,19 @@ def api_download(task_id: str):
     """
     task_info = get_task_status(task_id)
     if not task_info:
+        # DB 유실 폴백: 결과 파일이 디스크에 남아 있으면 그대로 다운로드 제공
+        result_file = find_output_file(task_id)
+        if result_file:
+            return FileResponse(
+                path=result_file,
+                filename=os.path.basename(result_file)[len(task_id) + 1:],
+                media_type="application/octet-stream"
+            )
         raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
-        
+
     if task_info["status"] != "completed" or not task_info["result_file"]:
         raise HTTPException(status_code=400, detail="변환이 아직 완료되지 않았거나 실패한 작업입니다.")
-        
+
     file_path = task_info["result_file"]
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="결과 파일이 서버에서 삭제되었거나 찾을 수 없습니다.")

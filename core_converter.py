@@ -1,8 +1,11 @@
 import os
 import re
+import logging
 import requests
 import traceback
 import gc
+
+logger = logging.getLogger(__name__)
 
 # Optional imports for Libre Engine
 try:
@@ -495,7 +498,7 @@ class LibBasedEngine:
                                         sanitized_line = sanitize_text_for_translation(full_para_text)
                                         full_para_text = translator.translate(sanitized_line)
                                     except Exception as e:
-                                        print(f"[LibBasedEngine] 번역 실패: {e}")
+                                        logger.warning("[LibBasedEngine] 번역 실패: %s", e)
                                 paragraphs.append(full_para_text)
                             paragraph_buffer = []
 
@@ -508,7 +511,7 @@ class LibBasedEngine:
                                 sanitized_line = sanitize_text_for_translation(full_para_text)
                                 full_para_text = translator.translate(sanitized_line)
                             except Exception as e:
-                                print(f"[LibBasedEngine] 번역 실패: {e}")
+                                logger.warning("[LibBasedEngine] 번역 실패: %s", e)
                         paragraphs.append(full_para_text)
 
             try:
@@ -516,7 +519,7 @@ class LibBasedEngine:
                     if table and len(table) > 0 and len(table[0]) > 0:
                         tables_data.append(table)
             except Exception as e:
-                print(f"[LibBasedEngine] 테이블 추출 실패: {e}")
+                logger.warning("[LibBasedEngine] 테이블 추출 실패: %s", e)
 
         return paragraphs, tables_data
 
@@ -535,12 +538,12 @@ class LibBasedEngine:
         translator = None
         if translate_to_ko:
             if GoogleTranslator is None:
-                print("[LibBasedEngine] deep-translator 라이브러리가 없어 번역이 지원되지 않습니다.")
+                logger.warning("[LibBasedEngine] deep-translator 라이브러리가 없어 번역이 지원되지 않습니다.")
             else:
                 try:
                     translator = GoogleTranslator(source='auto', target='ko')
                 except Exception as e:
-                    print(f"[LibBasedEngine] 번역기 생성 실패: {e}")
+                    logger.warning("[LibBasedEngine] 번역기 생성 실패: %s", e)
 
         try:
             for i in range(total_pages):
@@ -576,6 +579,16 @@ class LibBasedEngine:
             gc.collect()
 
     @classmethod
+    def _docx_color_to_hex(cls, color):
+        """python-docx Color 객체를 #RRGGBB 문자열로 변환합니다."""
+        try:
+            if color and color.type is not None and color.rgb is not None:
+                return f"#{color.rgb}"
+        except Exception:
+            pass
+        return None
+
+    @classmethod
     def _get_run_formatting(cls, run):
         """Run의 서식 정보를 딕셔너리로 반환합니다."""
         fmt = {}
@@ -590,6 +603,11 @@ class LibBasedEngine:
         except Exception:
             pass
         try:
+            if run.underline:
+                fmt['underline'] = True
+        except Exception:
+            pass
+        try:
             if run.font.name:
                 fmt['font_name'] = run.font.name
         except Exception:
@@ -598,6 +616,12 @@ class LibBasedEngine:
             if run.font.size:
                 # pt 단위로 변환 (EMU → pt: 1pt = 12700 EMU)
                 fmt['font_size'] = int(run.font.size / 12700)
+        except Exception:
+            pass
+        try:
+            color_hex = cls._docx_color_to_hex(run.font.color)
+            if color_hex:
+                fmt['color'] = color_hex
         except Exception:
             pass
         return fmt
@@ -661,10 +685,14 @@ class LibBasedEngine:
                         p.set_bold(True)
                     if hasattr(p, 'set_italic') and representative_fmt.get('italic'):
                         p.set_italic(True)
+                    if hasattr(p, 'set_underline') and representative_fmt.get('underline'):
+                        p.set_underline(True)
                     if hasattr(p, 'set_font_size') and representative_fmt.get('font_size'):
                         p.set_font_size(representative_fmt['font_size'])
                     if hasattr(p, 'set_font_name') and representative_fmt.get('font_name'):
                         p.set_font_name(representative_fmt['font_name'])
+                    if hasattr(p, 'set_text_color') and representative_fmt.get('color'):
+                        p.set_text_color(representative_fmt['color'])
                     if hasattr(p, 'set_alignment') and alignment:
                         p.set_alignment(alignment)
                 except Exception as e:
