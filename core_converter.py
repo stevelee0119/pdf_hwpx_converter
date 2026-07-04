@@ -465,12 +465,22 @@ class LibBasedEngine:
             return orig_text
         return reconstructed_text
 
+    # Render.com Free 플랜 메모리 제한(512MB)을 고려한 최대 파일 크기 (10MB)
+    MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024
+
     @classmethod
     def convert_pdf_to_hwpx(cls, pdf_path, output_path, translate_to_ko=False):
         if not cls.is_available():
             raise RuntimeError("python-hwpx 라이브러리가 로드되지 않았습니다.")
         if pdfplumber is None:
             raise RuntimeError("pdfplumber 라이브러리가 필요합니다. 'pip install pdfplumber'를 진행해 주세요.")
+
+        file_size = os.path.getsize(pdf_path)
+        if file_size > cls.MAX_PDF_SIZE_BYTES:
+            raise RuntimeError(
+                f"PDF 파일 크기({file_size / 1024 / 1024:.1f}MB)가 서버 허용 한도(10MB)를 초과합니다. "
+                f"파일을 분할하거나 용량을 줄여서 다시 시도해 주세요."
+            )
 
         doc = HwpxDocument.new()
 
@@ -485,11 +495,9 @@ class LibBasedEngine:
                 except Exception as e:
                     print(f"[LibBasedEngine] 번역기 생성 실패: {e}")
 
-        # Temporary directory for extracted images
-        import tempfile, shutil
-        temp_dir = tempfile.mkdtemp()
         try:
             with pdfplumber.open(pdf_path) as pdf:
+                total_pages = len(pdf.pages)
                 for i, page in enumerate(pdf.pages):
                     # ---- Text extraction ----
                     text = cls._extract_page_text(page)
@@ -499,13 +507,13 @@ class LibBasedEngine:
                             line_str = line.strip()
                             if line_str:
                                 paragraph_buffer.append(line_str)
-                                
+
                                 # 문장의 종결 기호로 끝나면 하나의 문단으로 병합하여 주입
-                                if line_str.endswith(('.', '?', '!', '"', '”', '’')):
+                                if line_str.endswith((".", "?", "!", '"', "”", "’")):
                                     full_para_text = " ".join(paragraph_buffer)
                                     # 다중 공백 제거 정돈
                                     full_para_text = re.sub(r'\s+', ' ', full_para_text).strip()
-                                    
+
                                     if full_para_text:
                                         if translator:
                                             try:
@@ -516,7 +524,7 @@ class LibBasedEngine:
                                         doc.add_paragraph(full_para_text)
                                         doc.add_paragraph("")
                                     paragraph_buffer = []
-                        
+
                         # 페이지 종료 후 버퍼에 남은 잔여 텍스트 처리
                         if paragraph_buffer:
                             full_para_text = " ".join(paragraph_buffer)
@@ -530,21 +538,7 @@ class LibBasedEngine:
                                         print(f"[LibBasedEngine] 번역 실패: {e}")
                                 doc.add_paragraph(full_para_text)
                                 doc.add_paragraph("")
-                    # ---- Image extraction ----
-                    if page.images:
-                        for img_index, img_dict in enumerate(page.images):
-                            try:
-                                # Render image using pdfplumber's to_image
-                                pil_img = page.to_image(resolution=150).original
-                                img_path = os.path.join(temp_dir, f"page_{i}_img_{img_index}.png")
-                                pil_img.save(img_path)
-                                
-                                # HwpxDocument.add_image()는 바이너리와 포맷을 입력받으므로 바이너리로 읽어 주입
-                                with open(img_path, 'rb') as img_f:
-                                    img_bytes = img_f.read()
-                                doc.add_image(img_bytes, 'png')
-                            except Exception as e:
-                                print(f"[LibBasedEngine] 이미지 추출 실패: {e}")
+
                     # ---- Table extraction ----
                     try:
                         tables = page.extract_tables()
@@ -561,18 +555,22 @@ class LibBasedEngine:
                                                     hwp_table.rows[r_idx].cells[c_idx].set_text(str(cell_value))
                     except Exception as e:
                         print(f"[LibBasedEngine] 테이블 추출 실패: {e}")
+
                     # 페이지 구분을 위한 간단한 문단 추가
-                    if i < len(pdf.pages) - 1:
+                    if i < total_pages - 1:
                         doc.add_paragraph("--------------------------------------------------------------------------------")
-            
+
+                    # 페이지 처리 후 캐시 정리 (대용량 PDF에서 OOM 방지)
+                    if hasattr(page, '_objects'):
+                        page._objects = None
+                    if i % 5 == 4:
+                        gc.collect()
+
             # 가독성 개선: 전역 문단 스타일 설정 적용
             cls._apply_global_paragraph_style(doc)
 
             doc.save_to_path(output_path)
         finally:
-            # Clean up temporary image files
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            # 메모리 효율화: 가비지 컬렉션 호출
             gc.collect()
 
     @classmethod

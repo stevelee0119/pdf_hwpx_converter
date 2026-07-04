@@ -146,10 +146,18 @@ document.addEventListener("DOMContentLoaded", () => {
         appendLog("파일 선택 해제 완료", "sys");
     });
 
+    const MAX_FILE_SIZE_MB = 10;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
     function handleFileSelect(file) {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
         if (ext !== ".pdf" && ext !== ".docx") {
             appendLog(`오류: 지원하지 않는 파일 형식입니다 (${ext}). PDF 또는 DOCX 파일을 선택하세요.`, "error");
+            return;
+        }
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            appendLog(`오류: 파일 크기(${formatBytes(file.size)})가 서버 허용 한도(${MAX_FILE_SIZE_MB}MB)를 초과합니다. 파일을 분할하거나 용량을 줄여 주세요.`, "error");
+            alert(`파일 크기가 ${MAX_FILE_SIZE_MB}MB를 초과합니다.\n\n현재 파일: ${formatBytes(file.size)}\n\n서버 메모리 제약으로 인해 대용량 파일은 처리할 수 없습니다.\n파일을 분할하거나 용량을 줄여서 다시 시도해 주세요.`);
             return;
         }
         selectedFile = file;
@@ -230,8 +238,15 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (!response.ok) {
-                const errDetail = await response.json();
-                throw new Error(errDetail.detail || "변환 요청이 실패했습니다.");
+                let errMsg = "변환 요청이 실패했습니다.";
+                try {
+                    const errDetail = await response.json();
+                    errMsg = errDetail.detail || errMsg;
+                } catch (_) {}
+                if (response.status === 413) {
+                    errMsg = `파일 크기 초과: ${errMsg}`;
+                }
+                throw new Error(errMsg);
             }
 
             const data = await response.json();
@@ -260,13 +275,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let counter = 0;
 
+        let consecutiveErrors = 0;
+
         pollInterval = setInterval(async () => {
             try {
                 const res = await fetch(`/api/status/${taskId}`);
+
+                if (res.status === 502 || res.status === 503) {
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= 3) {
+                        clearInterval(pollInterval);
+                        const oomMsg = "서버가 메모리 부족(OOM)으로 재시작되었습니다. 파일 크기를 줄이거나 페이지 수가 적은 PDF로 다시 시도해 주세요.";
+                        appendLog(`오류: ${oomMsg}`, "error");
+                        alert(`변환 실패: ${oomMsg}`);
+                        setUIStateLoading(false);
+                    }
+                    return;
+                }
+
                 if (!res.ok) throw new Error("상태 조회를 실패했습니다.");
 
+                consecutiveErrors = 0;
                 const data = await res.json();
-                
+
                 const progress = data.progress || 0;
                 const message = data.message || "변환 작업 처리 중...";
                 const status = data.status;
@@ -296,7 +327,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
             } catch (error) {
-                appendLog(`상태 모니터링 에러: ${error.message}`, "error");
+                consecutiveErrors++;
+                if (consecutiveErrors >= 5) {
+                    clearInterval(pollInterval);
+                    appendLog(`서버 연결 실패가 반복됩니다. 서버가 과부하 상태일 수 있습니다.`, "error");
+                    setUIStateLoading(false);
+                } else {
+                    appendLog(`상태 모니터링 에러: ${error.message}`, "error");
+                }
             }
         }, 1000);
     }

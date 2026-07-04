@@ -184,6 +184,10 @@ def api_engines():
     }
 
 
+MAX_UPLOAD_SIZE_MB = 10
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
 @app.post("/api/convert")
 def api_convert(
     background_tasks: BackgroundTasks,
@@ -201,7 +205,7 @@ def api_convert(
     task_id = str(uuid.uuid4())
     is_automation = use_automation.lower() == "true"
     is_translation = translate_to_ko.lower() == "true"
-    
+
     if is_automation and not HwpAutomationEngine.is_available():
         is_automation = False
         print(f"[Server] HwpAutomationEngine is not available. Falling back to Pure Library Engine.")
@@ -209,16 +213,26 @@ def api_convert(
     is_temp_input = False
     input_source = ""
     original_filename = "converted_document"
-    
+
     if file:
         file_ext = os.path.splitext(file.filename)[1].lower()
         if file_ext not in [".pdf", ".docx"]:
             raise HTTPException(status_code=400, detail="PDF 또는 DOCX 파일 형식만 지원합니다.")
-            
+
         temp_input_path = os.path.join(UPLOAD_DIR, f"{task_id}{file_ext}")
         with open(temp_input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
+
+        # 저장 후 파일 크기 검증
+        actual_size = os.path.getsize(temp_input_path)
+        if actual_size > MAX_UPLOAD_SIZE_BYTES:
+            os.remove(temp_input_path)
+            raise HTTPException(
+                status_code=413,
+                detail=f"파일 크기({actual_size / 1024 / 1024:.1f}MB)가 서버 허용 한도({MAX_UPLOAD_SIZE_MB}MB)를 초과합니다. "
+                       f"서버 메모리 제약으로 인해 대용량 파일은 처리할 수 없습니다. 파일을 분할하거나 압축하여 다시 시도해 주세요."
+            )
+
         input_source = temp_input_path
         is_temp_input = True
         original_filename = os.path.splitext(file.filename)[0]
@@ -228,7 +242,7 @@ def api_convert(
         if not doc_id:
             from core_converter import GoogleDocsDownloader
             doc_id = GoogleDocsDownloader.extract_document_id(url)
-            
+
         if doc_id:
             original_filename = f"gdocs_{doc_id[:8]}"
 
@@ -238,7 +252,7 @@ def api_convert(
 
     ext = os.path.splitext(file.filename)[1].lower() if file else ".docx"
     estimated = 15 if ext == ".pdf" else 10
-    
+
     # 6. 태스크 상태 초기화 (SQLite DB에 저장)
     set_task_status_pending(task_id, estimated, out_file_name)
 
