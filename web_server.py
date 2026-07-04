@@ -1,12 +1,10 @@
 import os
 import uuid
 import shutil
-import asyncio
 import sqlite3
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from core_converter import UniversalConverter, HwpAutomationEngine
 
@@ -245,10 +243,8 @@ def api_convert(
         original_filename = os.path.splitext(file.filename)[0]
     else:
         input_source = url
-        doc_id = UniversalConverter.extract_document_id(url) if hasattr(UniversalConverter, 'extract_document_id') else None
-        if not doc_id:
-            from core_converter import GoogleDocsDownloader
-            doc_id = GoogleDocsDownloader.extract_document_id(url)
+        from core_converter import GoogleDocsDownloader
+        doc_id = GoogleDocsDownloader.extract_document_id(url)
 
         if doc_id:
             original_filename = f"gdocs_{doc_id[:8]}"

@@ -238,9 +238,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     const errDetail = await response.json();
                     errMsg = errDetail.detail || errMsg;
                 } catch (_) {}
-                if (response.status === 413) {
-                    errMsg = `파일 크기 초과: ${errMsg}`;
-                }
                 throw new Error(errMsg);
             }
 

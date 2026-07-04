@@ -38,28 +38,27 @@ except ImportError:
 
 def extract_filename_from_headers(headers, fallback_name):
     """Content-Disposition 헤더에서 실제 원본 파일명을 파싱합니다."""
+    from urllib.parse import unquote
     cd = headers.get("Content-Disposition", "")
     if not cd:
         return fallback_name
-    
+
     # 1. RFC 5987 방식 (filename*=UTF-8''utf8_filename)
     match = re.search(r"filename\*=\s*UTF-8''([^;\n]+)", cd, re.IGNORECASE)
     if match:
-        from urllib.parse import unquote
         try:
             return unquote(match.group(1).strip('"\''))
         except Exception:
             pass
-            
+
     # 2. 일반 방식 (filename="filename" 또는 filename=filename)
     match = re.search(r'filename=\s*["\']?([^;\n"\']+)["\']?', cd, re.IGNORECASE)
     if match:
-        from urllib.parse import unquote
         try:
             return unquote(match.group(1).strip())
         except Exception:
             pass
-            
+
     return fallback_name
 
 # Downloader for Google Docs (DOCX) URLs
@@ -577,16 +576,6 @@ class LibBasedEngine:
             gc.collect()
 
     @classmethod
-    def _docx_color_to_hex(cls, color):
-        """python-docx Color 객체를 #RRGGBB 문자열로 변환합니다."""
-        try:
-            if color and color.type is not None and color.rgb is not None:
-                return f"#{color.rgb}"
-        except Exception:
-            pass
-        return None
-
-    @classmethod
     def _get_run_formatting(cls, run):
         """Run의 서식 정보를 딕셔너리로 반환합니다."""
         fmt = {}
@@ -601,11 +590,6 @@ class LibBasedEngine:
         except Exception:
             pass
         try:
-            if run.underline:
-                fmt['underline'] = True
-        except Exception:
-            pass
-        try:
             if run.font.name:
                 fmt['font_name'] = run.font.name
         except Exception:
@@ -614,12 +598,6 @@ class LibBasedEngine:
             if run.font.size:
                 # pt 단위로 변환 (EMU → pt: 1pt = 12700 EMU)
                 fmt['font_size'] = int(run.font.size / 12700)
-        except Exception:
-            pass
-        try:
-            color_hex = cls._docx_color_to_hex(run.font.color)
-            if color_hex:
-                fmt['color'] = color_hex
         except Exception:
             pass
         return fmt
@@ -649,13 +627,6 @@ class LibBasedEngine:
             except Exception:
                 pass
 
-            # 문단 스타일 이름 (헤딩 등)
-            style_name = ""
-            try:
-                style_name = para.style.name if para.style else ""
-            except Exception:
-                pass
-
             # 문단 내 Run이 없거나 텍스트가 비어있는 경우 빈 줄 추가
             if not para.runs or not para.text.strip():
                 doc.add_paragraph(para.text if para.text else "")
@@ -675,13 +646,6 @@ class LibBasedEngine:
                 # 서식이 있는 경우: add_paragraph에 전체 텍스트 추가 후 서식 시도
                 # python-hwpx의 API 수준에 따라 적용 가능 여부가 다름
                 full_text = para.text
-                # 헤딩 스타일 감지
-                heading_level = None
-                if 'Heading' in style_name:
-                    try:
-                        heading_level = int(''.join(filter(str.isdigit, style_name)))
-                    except Exception:
-                        heading_level = 1
 
                 # 가장 많이 사용된 Run의 서식을 대표 서식으로 사용
                 representative_fmt = {}
@@ -741,36 +705,6 @@ class UniversalConverter:
     """
     엔진 선택 및 입력을 조합하여 전체 변환 흐름을 중재하는 메인 컨트롤러 클래스입니다.
     """
-    @classmethod
-    def _extract_filename_from_url(cls, url):
-        """URL에서 파일명을 추출합니다. 추출 실패 시 None을 반환합니다."""
-        try:
-            from urllib.parse import urlparse, unquote
-            parsed = urlparse(url)
-            path = parsed.path
-            # 경로의 마지막 세그먼트에서 파일명 추출
-            basename = os.path.basename(path)
-            if basename and '.' in basename:
-                return unquote(basename)
-        except Exception:
-            pass
-        return None
-
-    @classmethod
-    def _build_output_path(cls, output_path, original_filename, suffix="(converted)"):
-        """
-        원본 파일명 기반으로 저장 경로를 생성합니다.
-        output_path에 이미 사용자가 지정한 파일명이 포함된 경우 그대로 사용합니다.
-        """
-        if original_filename:
-            out_dir = os.path.dirname(output_path)
-            base = os.path.splitext(original_filename)[0]
-            # 파일명에서 사용할 수 없는 문자 제거
-            safe_base = re.sub(r'[<>:"/\\|?*]', '_', base)
-            new_name = f"{safe_base}{suffix}.hwpx"
-            return os.path.join(out_dir, new_name)
-        return output_path
-
     @classmethod
     def convert(cls, input_source, output_path, use_automation=True, translate_to_ko=False, progress_callback=None):
         """
