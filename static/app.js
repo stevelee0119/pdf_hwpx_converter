@@ -268,6 +268,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let counter = 0;
 
         let consecutiveErrors = 0;
+        let consecutive404s = 0;
 
         pollInterval = setInterval(async () => {
             try {
@@ -286,13 +287,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if (res.status === 404) {
-                    clearInterval(pollInterval);
-                    const lostMsg = "서버가 재시작되어 작업 정보가 소실되었습니다. 다시 변환을 시도해 주세요.";
-                    appendLog(`오류: ${lostMsg}`, "error");
-                    alert(`변환 실패: ${lostMsg}`);
-                    setUIStateLoading(false);
+                    consecutive404s++;
+                    if (consecutive404s >= 5) {
+                        clearInterval(pollInterval);
+                        const lostMsg = "서버가 재시작되어 작업 정보가 소실되었습니다. 다시 변환을 시도해 주세요.";
+                        appendLog(`오류: ${lostMsg}`, "error");
+                        alert(`변환 실패: ${lostMsg}`);
+                        setUIStateLoading(false);
+                    }
                     return;
                 }
+                consecutive404s = 0;
 
                 if (!res.ok) throw new Error("상태 조회를 실패했습니다.");
 

@@ -79,7 +79,7 @@ def get_task_status(task_id: str):
         conn.close()
 
 def set_task_status_pending(task_id: str, estimated_seconds: int, original_name: str):
-    """새 작업을 대기 상태(pending)로 등록합니다."""
+    """새 작업을 대기 상태(pending)로 등록합니다. 쓰기 후 WAL checkpoint를 수행하여 즉시 가시성을 보장합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -89,6 +89,7 @@ def set_task_status_pending(task_id: str, estimated_seconds: int, original_name:
             VALUES (?, 'pending', 0, '대기 중...', NULL, ?, ?, ?)
         """, (task_id, estimated_seconds, estimated_seconds, original_name))
         conn.commit()
+        cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
     finally:
         conn.close()
 
@@ -285,8 +286,13 @@ def api_convert(
 def api_status(task_id: str):
     """
     특정 태스크의 현재 진행 상태를 조회합니다.
+    DB에서 즉시 조회되지 않으면 WAL 동기화 지연을 고려하여 한 번 더 시도합니다.
     """
     task_info = get_task_status(task_id)
+    if not task_info:
+        import time
+        time.sleep(0.3)
+        task_info = get_task_status(task_id)
     if not task_info:
         raise HTTPException(
             status_code=404,
