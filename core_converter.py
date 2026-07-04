@@ -465,26 +465,74 @@ class LibBasedEngine:
             return orig_text
         return reconstructed_text
 
-    # Render.com Free 플랜 메모리 제한(512MB)을 고려한 최대 파일 크기 (10MB)
-    MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024
+    @classmethod
+    def _process_single_page(cls, pdf_path, page_index, translator=None):
+        """
+        단일 페이지만 열어 텍스트와 테이블을 추출한 뒤 즉시 닫습니다.
+        페이지별로 PDF를 열고 닫아 메모리를 최소화합니다.
+        """
+        paragraphs = []
+        tables_data = []
+
+        with pdfplumber.open(pdf_path, pages=[page_index]) as pdf:
+            if not pdf.pages:
+                return paragraphs, tables_data
+            page = pdf.pages[0]
+
+            text = cls._extract_page_text(page)
+            if text:
+                paragraph_buffer = []
+                for line in text.split('\n'):
+                    line_str = line.strip()
+                    if line_str:
+                        paragraph_buffer.append(line_str)
+
+                        if line_str.endswith((".", "?", "!", '"', "”", "’")):
+                            full_para_text = " ".join(paragraph_buffer)
+                            full_para_text = re.sub(r'\s+', ' ', full_para_text).strip()
+                            if full_para_text:
+                                if translator:
+                                    try:
+                                        sanitized_line = sanitize_text_for_translation(full_para_text)
+                                        full_para_text = translator.translate(sanitized_line)
+                                    except Exception as e:
+                                        print(f"[LibBasedEngine] 번역 실패: {e}")
+                                paragraphs.append(full_para_text)
+                            paragraph_buffer = []
+
+                if paragraph_buffer:
+                    full_para_text = " ".join(paragraph_buffer)
+                    full_para_text = re.sub(r'\s+', ' ', full_para_text).strip()
+                    if full_para_text:
+                        if translator:
+                            try:
+                                sanitized_line = sanitize_text_for_translation(full_para_text)
+                                full_para_text = translator.translate(sanitized_line)
+                            except Exception as e:
+                                print(f"[LibBasedEngine] 번역 실패: {e}")
+                        paragraphs.append(full_para_text)
+
+            try:
+                for table in (page.extract_tables() or []):
+                    if table and len(table) > 0 and len(table[0]) > 0:
+                        tables_data.append(table)
+            except Exception as e:
+                print(f"[LibBasedEngine] 테이블 추출 실패: {e}")
+
+        return paragraphs, tables_data
 
     @classmethod
-    def convert_pdf_to_hwpx(cls, pdf_path, output_path, translate_to_ko=False):
+    def convert_pdf_to_hwpx(cls, pdf_path, output_path, translate_to_ko=False, progress_callback=None):
         if not cls.is_available():
             raise RuntimeError("python-hwpx 라이브러리가 로드되지 않았습니다.")
         if pdfplumber is None:
             raise RuntimeError("pdfplumber 라이브러리가 필요합니다. 'pip install pdfplumber'를 진행해 주세요.")
 
-        file_size = os.path.getsize(pdf_path)
-        if file_size > cls.MAX_PDF_SIZE_BYTES:
-            raise RuntimeError(
-                f"PDF 파일 크기({file_size / 1024 / 1024:.1f}MB)가 서버 허용 한도(10MB)를 초과합니다. "
-                f"파일을 분할하거나 용량을 줄여서 다시 시도해 주세요."
-            )
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
 
         doc = HwpxDocument.new()
 
-        # 번역기 세팅
         translator = None
         if translate_to_ko:
             if GoogleTranslator is None:
@@ -496,79 +544,34 @@ class LibBasedEngine:
                     print(f"[LibBasedEngine] 번역기 생성 실패: {e}")
 
         try:
-            with pdfplumber.open(pdf_path) as pdf:
-                total_pages = len(pdf.pages)
-                for i, page in enumerate(pdf.pages):
-                    # ---- Text extraction ----
-                    text = cls._extract_page_text(page)
-                    if text:
-                        paragraph_buffer = []
-                        for line in text.split('\n'):
-                            line_str = line.strip()
-                            if line_str:
-                                paragraph_buffer.append(line_str)
+            for i in range(total_pages):
+                if progress_callback:
+                    pct = int(60 + (i / total_pages) * 35)
+                    progress_callback(f"페이지 {i+1}/{total_pages} 처리 중...", pct)
 
-                                # 문장의 종결 기호로 끝나면 하나의 문단으로 병합하여 주입
-                                if line_str.endswith((".", "?", "!", '"', "”", "’")):
-                                    full_para_text = " ".join(paragraph_buffer)
-                                    # 다중 공백 제거 정돈
-                                    full_para_text = re.sub(r'\s+', ' ', full_para_text).strip()
+                paragraphs, tables_data = cls._process_single_page(
+                    pdf_path, i, translator
+                )
 
-                                    if full_para_text:
-                                        if translator:
-                                            try:
-                                                sanitized_line = sanitize_text_for_translation(full_para_text)
-                                                full_para_text = translator.translate(sanitized_line)
-                                            except Exception as e:
-                                                print(f"[LibBasedEngine] 번역 실패: {e}")
-                                        doc.add_paragraph(full_para_text)
-                                        doc.add_paragraph("")
-                                    paragraph_buffer = []
+                for para_text in paragraphs:
+                    doc.add_paragraph(para_text)
+                    doc.add_paragraph("")
 
-                        # 페이지 종료 후 버퍼에 남은 잔여 텍스트 처리
-                        if paragraph_buffer:
-                            full_para_text = " ".join(paragraph_buffer)
-                            full_para_text = re.sub(r'\s+', ' ', full_para_text).strip()
-                            if full_para_text:
-                                if translator:
-                                    try:
-                                        sanitized_line = sanitize_text_for_translation(full_para_text)
-                                        full_para_text = translator.translate(sanitized_line)
-                                    except Exception as e:
-                                        print(f"[LibBasedEngine] 번역 실패: {e}")
-                                doc.add_paragraph(full_para_text)
-                                doc.add_paragraph("")
+                for table in tables_data:
+                    rows_count = len(table)
+                    cols_count = len(table[0])
+                    hwp_table = doc.add_table(rows_count, cols_count)
+                    for r_idx, row in enumerate(table):
+                        for c_idx, cell_value in enumerate(row):
+                            if cell_value is not None:
+                                hwp_table.rows[r_idx].cells[c_idx].set_text(str(cell_value))
 
-                    # ---- Table extraction ----
-                    try:
-                        tables = page.extract_tables()
-                        for table in tables:
-                            if table:
-                                rows_count = len(table)
-                                if rows_count > 0:
-                                    cols_count = len(table[0])
-                                    if cols_count > 0:
-                                        hwp_table = doc.add_table(rows_count, cols_count)
-                                        for r_idx, row in enumerate(table):
-                                            for c_idx, cell_value in enumerate(row):
-                                                if cell_value is not None:
-                                                    hwp_table.rows[r_idx].cells[c_idx].set_text(str(cell_value))
-                    except Exception as e:
-                        print(f"[LibBasedEngine] 테이블 추출 실패: {e}")
+                if i < total_pages - 1:
+                    doc.add_paragraph("--------------------------------------------------------------------------------")
 
-                    # 페이지 구분을 위한 간단한 문단 추가
-                    if i < total_pages - 1:
-                        doc.add_paragraph("--------------------------------------------------------------------------------")
+                gc.collect()
 
-                    # 페이지 처리 후 캐시 정리 (대용량 PDF에서 OOM 방지)
-                    if hasattr(page, '_objects'):
-                        page._objects = None
-                    if i % 5 == 4:
-                        gc.collect()
-
-            # 가독성 개선: 전역 문단 스타일 설정 적용
             cls._apply_global_paragraph_style(doc)
-
             doc.save_to_path(output_path)
         finally:
             gc.collect()
@@ -868,8 +871,7 @@ class UniversalConverter:
                     progress_callback("오픈소스 엔진으로 레이아웃 파싱 및 HWPX 생성 중...", 60)
 
                 if ext == ".pdf":
-                    # PDF 파일이면 텍스트 추출 정확도를 최우선으로 하기 위해 pdfplumber 기반 직접 추출 엔진 사용
-                    LibBasedEngine.convert_pdf_to_hwpx(local_input, output_path, translate_to_ko)
+                    LibBasedEngine.convert_pdf_to_hwpx(local_input, output_path, translate_to_ko, progress_callback)
                 elif ext == ".docx":
                     # DOCX 파일이면 텍스트 및 스타일 파싱
                     if translate_to_ko:

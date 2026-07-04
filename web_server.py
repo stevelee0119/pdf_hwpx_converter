@@ -184,10 +184,6 @@ def api_engines():
     }
 
 
-MAX_UPLOAD_SIZE_MB = 10
-MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
-
-
 @app.post("/api/convert")
 def api_convert(
     background_tasks: BackgroundTasks,
@@ -221,17 +217,7 @@ def api_convert(
 
         temp_input_path = os.path.join(UPLOAD_DIR, f"{task_id}{file_ext}")
         with open(temp_input_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # 저장 후 파일 크기 검증
-        actual_size = os.path.getsize(temp_input_path)
-        if actual_size > MAX_UPLOAD_SIZE_BYTES:
-            os.remove(temp_input_path)
-            raise HTTPException(
-                status_code=413,
-                detail=f"파일 크기({actual_size / 1024 / 1024:.1f}MB)가 서버 허용 한도({MAX_UPLOAD_SIZE_MB}MB)를 초과합니다. "
-                       f"서버 메모리 제약으로 인해 대용량 파일은 처리할 수 없습니다. 파일을 분할하거나 압축하여 다시 시도해 주세요."
-            )
+            shutil.copyfileobj(file.file, buffer, length=64 * 1024)
 
         input_source = temp_input_path
         is_temp_input = True
@@ -251,7 +237,12 @@ def api_convert(
     output_path = os.path.join(OUTPUT_DIR, f"{task_id}_{out_file_name}")
 
     ext = os.path.splitext(file.filename)[1].lower() if file else ".docx"
-    estimated = 15 if ext == ".pdf" else 10
+    # 파일 크기에 비례하여 예상 소요 시간 산정 (대용량 파일 대응)
+    file_size_mb = os.path.getsize(input_source) / (1024 * 1024) if is_temp_input else 1
+    if ext == ".pdf":
+        estimated = max(15, int(file_size_mb * 5))
+    else:
+        estimated = max(10, int(file_size_mb * 3))
 
     # 6. 태스크 상태 초기화 (SQLite DB에 저장)
     set_task_status_pending(task_id, estimated, out_file_name)

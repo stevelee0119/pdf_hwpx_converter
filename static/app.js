@@ -146,18 +146,10 @@ document.addEventListener("DOMContentLoaded", () => {
         appendLog("파일 선택 해제 완료", "sys");
     });
 
-    const MAX_FILE_SIZE_MB = 10;
-    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
     function handleFileSelect(file) {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
         if (ext !== ".pdf" && ext !== ".docx") {
             appendLog(`오류: 지원하지 않는 파일 형식입니다 (${ext}). PDF 또는 DOCX 파일을 선택하세요.`, "error");
-            return;
-        }
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-            appendLog(`오류: 파일 크기(${formatBytes(file.size)})가 서버 허용 한도(${MAX_FILE_SIZE_MB}MB)를 초과합니다. 파일을 분할하거나 용량을 줄여 주세요.`, "error");
-            alert(`파일 크기가 ${MAX_FILE_SIZE_MB}MB를 초과합니다.\n\n현재 파일: ${formatBytes(file.size)}\n\n서버 메모리 제약으로 인해 대용량 파일은 처리할 수 없습니다.\n파일을 분할하거나 용량을 줄여서 다시 시도해 주세요.`);
             return;
         }
         selectedFile = file;
@@ -165,6 +157,9 @@ document.addEventListener("DOMContentLoaded", () => {
         dropZone.style.display = "none";
         fileBanner.style.display = "flex";
         appendLog(`파일 로드됨: ${file.name} (${formatBytes(file.size)})`, "sys");
+        if (file.size > 4 * 1024 * 1024) {
+            appendLog(`대용량 파일 감지 (${formatBytes(file.size)}). 변환에 다소 시간이 소요될 수 있습니다.`, "sys");
+        }
     }
 
     function resetFileSelection() {

@@ -141,7 +141,7 @@ def test_universal_converter_pdf_translation_uses_sanitize(monkeypatch, tmp_path
 
     fake_translator = FakeTranslator()
     
-    def mock_convert_pdf_to_hwpx(pdf_path, out_path, translate_to_ko=False):
+    def mock_convert_pdf_to_hwpx(pdf_path, out_path, translate_to_ko=False, progress_callback=None):
         if translate_to_ko:
             text = "Body aaaaaa ......"
             sanitized = sanitize_text_for_translation(text)
@@ -197,7 +197,7 @@ def test_output_filename_rewriting_local_and_url(monkeypatch, tmp_path):
                 f.write(b"%PDF-1.4 dummy")
             return out_path, "Financial_Statement_2026.pdf"
 
-    def fake_convert_pdf_to_hwpx(pdf_path, out_path, translate_to_ko=False):
+    def fake_convert_pdf_to_hwpx(pdf_path, out_path, translate_to_ko=False, progress_callback=None):
         with open(out_path, "wb") as f:
             f.write(b"")
 
