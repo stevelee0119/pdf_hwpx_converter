@@ -97,30 +97,27 @@ img.header-emblem {
 }
 
 .army-badge {
-    display: inline-block;
-    align-self: flex-start;
-    padding: 4px 12px;
-    background: rgba(212, 175, 55, 0.1);
-    border: 1px solid rgba(212, 175, 55, 0.3);
-    border-radius: 20px;
+    display: block;
+    padding: 4px 0;
+    background: none;
+    border: none;
+    border-radius: 0;
     color: #d4af37;
     font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.5px;
     margin-bottom: 6px;
     text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+    text-align: justify;
+    text-align-last: justify;
 }
 
 .app-header h1 {
     font-size: 1.55rem;
     font-weight: 700;
     margin-bottom: 4px;
-    letter-spacing: -0.5px;
     line-height: 1.25;
+    text-align: justify;
+    text-align-last: justify;
 }
 
 .glow-text {
@@ -134,6 +131,8 @@ img.header-emblem {
     font-size: 0.82rem;
     color: #8c90aa;
     line-height: 1.4;
+    text-align: justify;
+    text-align-last: justify;
 }
 
 /* Glassmorphism Main Card */
