@@ -77,11 +77,13 @@ body {
     gap: 20px;
 }
 
-.header-emblem {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
-    max-height: 72px;
+img.header-emblem {
+    width: 72px !important;
+    height: 72px !important;
+    max-width: 72px !important;
+    max-height: 72px !important;
+    min-width: 72px;
+    min-height: 72px;
     flex-shrink: 0;
     object-fit: contain;
     filter: drop-shadow(0 0 14px rgba(212, 175, 55, 0.2));
